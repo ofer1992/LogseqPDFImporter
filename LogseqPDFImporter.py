@@ -394,6 +394,9 @@ def main(
         imgdir_path = (Path(input_path).parent / Path(input_path).stem)
         imgdir_path.mkdir(exist_ok=True)
         imgdir_path = str(imgdir_path)
+    else:
+        # Ensure the explicitly provided imgdir_path exists
+        Path(imgdir_path).mkdir(parents=True, exist_ok=True)
 
     filename = str(Path(input_path).name)
 
