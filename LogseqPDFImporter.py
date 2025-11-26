@@ -1,3 +1,13 @@
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "simplejson>=3.19.2",
+#     "fire>=0.5.0",
+#     "pymupdf>=1.23.7,<1.26.5",
+#     "colour-science>=0.4.4",
+# ]
+# ///
 import shutil
 import textwrap
 import simplejson as json  # only simplejson can dump decimal
@@ -62,8 +72,15 @@ def _extract_annot(annot, words_on_page, keep_newlines, thresh):
         str: words in the entire highlight.
     """
     quad_points = annot.vertices
-    if not quad_points:  # square and ink annotation apparently don't have vertices
-        quad_points = annot.rect.quad
+    # Ink annotations have vertices as list of stroke paths, not quad points
+    # Check if vertices look like ink strokes (list of lists) vs quad points (flat list of tuples)
+    if quad_points and isinstance(quad_points[0], list):
+        # Ink annotation - can't extract text, return empty
+        return ""
+    if not quad_points:  # square annotation apparently don't have vertices
+        # Convert Quad object to list of tuples
+        quad_obj = annot.rect.quad
+        quad_points = [quad_obj.ul, quad_obj.ur, quad_obj.ll, quad_obj.lr]
     quad_count = int(len(quad_points) / 4)
     sentences = ['' for i in range(quad_count)]
     for i in range(quad_count):
@@ -174,6 +191,10 @@ def annot_to_dict(
                     )
                 )
 
+    # preserve note if present
+    if annot.get("note"):
+        result["note"] = annot["note"]
+
     # add author (usually stored in 'title')
     if "author" not in annot and "title" in annot:
         annot["author"] = annot["title"]
@@ -277,6 +298,9 @@ def main(
             if annotdict["subtype"] == "link":
                 continue
 
+            # preserve original note before extracting highlighted text
+            annotdict["note"] = annotdict.get("content", "").strip()
+
             # extract text using PyMuPDF
             words = page.get_text("words")
             text = _extract_annot(
@@ -374,7 +398,7 @@ def main(
     filename = str(Path(input_path).name)
 
     # create the md file alongside the annotations
-    md = "file-path:: ../assets/" + Path(input_path).name + "\n"
+    md = "file-path:: ../assets/pdfs/" + Path(input_path).name + "\n"
     md += "diy_type:: [[Annotations_page]]\n\n"
     for ia, an in enumerate(annots["highlights"]):
         # if not "content" in an:
@@ -401,6 +425,9 @@ def main(
                     )
         if lines:
             md += textwrap.indent("\n".join(lines), " " * 2) + "\n"
+        # add note as child block if present
+        if an.get("note"):
+            md += "  - " + an["note"] + "\n"
 
     shutil.rmtree("images_cache")
 
@@ -409,7 +436,7 @@ def main(
     for var in ["x1", "y1", "x2", "y2", "width", "height", "id #uuid",
                 "page", "position", "content", "text", "properties",
                 "color", "rects", "bounding", "highlights", "image",
-                "author", "image_id"]:
+                "author", "image_id", "note"]:
         edn = edn_var_formatter(edn, var)
 
     print(md)
